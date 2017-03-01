@@ -86,7 +86,7 @@ simple spin lock because of its distributed nature. However, a drawback of MCS l
 that it traditonally required to pass an explicit arguement, whose type is a pointer to a queue node. 
 In Rust syntax, the canonical MCS lock API will look like the following:
 
-```
+```rust
 fn lock(q: *mut qnode);
 fn unlock(q: *mut qnode);
 ```

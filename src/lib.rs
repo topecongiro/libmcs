@@ -7,6 +7,8 @@
 //! MSC lock algorithm. Unlike traditional one, the API of this library does not
 //! require an explicit arguement to a pointer of queue node. Therefore, it can
 //! be interchangebely used with `std::sync::Mutex`.
+//!
+//! Currently most of the documents and examples are borrowed from those of `std::sync::Mutex`.
 
 #![crate_type = "lib"]
 

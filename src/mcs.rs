@@ -31,6 +31,80 @@ impl Node {
 /// A mutual exclusion primitive useful for protecting shared data
 ///
 /// This mutex is based on the MCS lock algorithm.
+///
+/// # Examples
+///
+/// ```
+/// extern crate libmcs;
+///
+/// use std::sync::Arc;
+/// use std::thread;
+/// use std::sync::mpsc::channel;
+///
+/// use libmcs::Mutex;
+///
+/// const N: usize = 10;
+///
+/// // Spawn a few threads to increment a shared variable (non-atomically), and
+/// // let the main thread know once all increments are done.
+/// //
+/// // Here we're using an Arc to share memory among threads, and the data inside
+/// // the Arc is protected with a mutex.
+/// let data = Arc::new(Mutex::new(0));
+///
+/// let (tx, rx) = channel();
+/// for _ in 0..10 {
+///     let (data, tx) = (data.clone(), tx.clone());
+///     thread::spawn(move || {
+///         // The shared state can only be accessed once the mutex is held.
+///         // Our non-atomic increment is safe because we're the only thread
+///         // which can access the shared state when the mutex is held.
+///         //
+///         // We unwrap() the return value to assert that we are not expecting
+///         // threads to ever fail while holding the mutex.
+///         let mut data = data.lock().unwrap();
+///         *data += 1;
+///         if *data == N {
+///             tx.send(()).unwrap();
+///         }
+///         // the mutex is unlocked here when `data` goes out of scope.
+///     });
+/// }
+///
+/// rx.recv().unwrap();
+/// ```
+///
+/// To recover from a poisoned mutex:
+///
+/// ```
+/// extern crate libmcs;
+/// use std::sync::{Arc, Mutex};
+/// use std::thread;
+///
+/// use libmcs::Mutex;
+///
+/// let mtx = Arc::new(Mutex::new(0_u32));
+/// let mtx2 = mtx.clone();
+///
+/// let _ = thread::spawn(move || -> () {
+///     // This thread will acquire the mutex first, unwrapping the result of
+///     // `lock()` because the mutex has not been poisoned.
+///     let _guard = mtx2.lock().unwrap();
+///
+///     // This panic while holding the mutex (`_guard` is in scope) will poison
+///     // it.
+///     panic!();
+/// }).join();
+///
+/// // The mutex is poisoned by this point, but the returned result can be
+/// // pattern matched on to return the underlying guard on both branches.
+/// let mut guard = match mtx.lock() {
+///     Ok(guard) => guard,
+///     Err(poisoned) => poisoned.into_inner(),
+/// };
+///
+/// *guard += 1;
+/// ```
 pub struct Mutex<T: ?Sized> {
     tail: AtomicPtr<Node>,
     poison: poison::Flag,
@@ -40,10 +114,16 @@ pub struct Mutex<T: ?Sized> {
 unsafe impl<T: ?Sized + Send> Send for Mutex<T> { }
 unsafe impl<T: ?Sized + Send> Sync for Mutex<T> { }
 
-/// An RAII implementation of a "scoped lock" of a mutex. When this structure is
-/// dropped (falls out of scope), the lock will be unlocked.
+/// An RAII implementation of a scoped locking. When this structure is
+/// dropped (falls out of scope), the mutex will be unlocked.
+///
+/// The data protected by the mutex can be access through this guard via its
+/// [`Deref`] and [`DerefMut`] implementations.
+///
+/// This structure is created by the [`lock()`] and [`try_lock()`] methods on
+/// [`Mutex`].
 pub struct MutexGuard<'a, T: ?Sized + 'a> {
-    __lock: &'a Mutex<T>,
+    __mtx: &'a Mutex<T>,
     __node: AtomicPtr<Node>,
     __poison: poison::Guard,
 }
@@ -52,6 +132,14 @@ impl<'a, T: ?Sized> !marker::Send for MutexGuard<'a, T> { }
 
 impl<T> Mutex<T> {
     /// Creates a new mutex in an unlocked state ready for use.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::sync::Mutex;
+    ///
+    /// let mutex = Mutex::new(0);
+    /// ```
     pub fn new(t: T) -> Mutex<T> {
         Mutex {
             tail: AtomicPtr::new(ptr::null_mut()),
@@ -62,7 +150,7 @@ impl<T> Mutex<T> {
 }
 
 impl<T: ?Sized> Mutex<T> {
-    /// Acquires a mutex, blocking the current thread until it is able to do so.
+    /// Acquires the mutex, blocking the current thread until it is able to do so.
     pub fn lock(&self) -> LockResult<MutexGuard<T>> {
         unsafe {
             let node = Box::into_raw(Box::new(Node::new()));
@@ -76,7 +164,7 @@ impl<T: ?Sized> Mutex<T> {
         }
     }
 
-    /// Attempts to acquire the lock.
+    /// Attempts to acquire the mutex.
     pub fn try_lock(&self) -> TryLockResult<MutexGuard<T>> {
         unsafe {
             let node = Box::into_raw(Box::new(Node::new()));
@@ -92,7 +180,7 @@ impl<T: ?Sized> Mutex<T> {
         }
     }
 
-    /// Determines whether the lock is poisoned.
+    /// Determines whether the mutex is poisoned.
     pub fn is_poisoned(&self) -> bool {
         self.poison.get()
     }
@@ -100,9 +188,10 @@ impl<T: ?Sized> Mutex<T> {
     /// Consumes this mutex, returning the underlying data.
     pub fn into_inner(self) -> LockResult<T> where T: Sized {
         // We know statically that there are no outstanding references to
-        // `self` so there's no need to lock the inner lock. Moreover,
-        // in MCS lock tail points to a null pointer if the lock is not acquired.
-        // Therefore, we do not need to take a reference to tail.
+        // `self` so there's no need to acquire the mutex. Moreover, in MCS lock
+        // `self.tail` points to a null pointer if the mutex is not acquired.
+        // Therefore, we do not need to explicitly clean up the memory
+        // for the queue node.
         //
         // To get the inner value, we'd like to call `data.into_inner()`,
         // but because `Mutex` impl-s `Drop`, we can't move out of it, so
@@ -120,6 +209,10 @@ impl<T: ?Sized> Mutex<T> {
     }
 
     /// Returns a mutable reference to the underlying data.
+    ///
+    /// Since this call borrows the `Mutex` mutably, no actual locking needs to
+    /// take place---the mutable borrow statically guarantees the mutex is not
+    /// acquired.
     pub fn get_mut(&mut self) -> LockResult<&mut T> {
         let data = unsafe { &mut *self.data.get() };
         poison::map_result(self.poison.borrow(), |_| data)
@@ -127,8 +220,8 @@ impl<T: ?Sized> Mutex<T> {
 }
 
 impl<T: ?Sized> Drop for Mutex<T> {
-    // Nothing to do since if the lock is not acquired than `self.tail`
-    // points to a pointer.
+    // Nothing to do since if the mutex is not acquired `self.tail`
+    // points to a null pointer.
     fn drop(&mut self) { }
 }
 
@@ -155,7 +248,7 @@ impl<'mutex, T: ?Sized> MutexGuard<'mutex, T> {
     unsafe fn new(lock: &'mutex Mutex<T>, node: AtomicPtr<Node>) -> LockResult<MutexGuard<'mutex, T>> {
         poison::map_result(lock.poison.borrow(), |guard| {
             MutexGuard {
-                __lock: lock,
+                __mtx: lock,
                 __node: node,
                 __poison: guard,
             }
@@ -167,13 +260,13 @@ impl<'mutex, T: ?Sized> Deref for MutexGuard<'mutex, T> {
     type Target = T;
 
     fn deref(&self) -> &T {
-        unsafe { &*self.__lock.data.get() }
+        unsafe { &*self.__mtx.data.get() }
     }
 }
 
 impl<'mutex, T: ?Sized> DerefMut for MutexGuard<'mutex, T> {
     fn deref_mut(&mut self) -> &mut T {
-        unsafe { &mut *self.__lock.data.get() }
+        unsafe { &mut *self.__mtx.data.get() }
     }
 }
 
@@ -181,11 +274,11 @@ impl<'mutex, T: ?Sized> DerefMut for MutexGuard<'mutex, T> {
 impl<'mutex, T: ?Sized> Drop for MutexGuard<'mutex, T> {
     fn drop(&mut self) {
         unsafe {
-            self.__lock.poison.done(&self.__poison);
+            self.__mtx.poison.done(&self.__poison);
             let raw_node_ptr = *self.__node.get_mut();
             let mut succ = (*raw_node_ptr).next.load(Relaxed);
             if succ.is_null() {
-                if self.__lock.tail.compare_and_swap(raw_node_ptr, ptr::null_mut(), Release) == raw_node_ptr {
+                if self.__mtx.tail.compare_and_swap(raw_node_ptr, ptr::null_mut(), Release) == raw_node_ptr {
                     // Destroy the node pointer handled by this MutexGuard
                     Box::from_raw(raw_node_ptr);
                     return
@@ -203,7 +296,7 @@ impl<'mutex, T: ?Sized> Drop for MutexGuard<'mutex, T> {
 impl<'mutex, T: ?Sized + fmt::Debug> fmt::Debug for MutexGuard<'mutex, T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("MutexGuard")
-            .field("lock", &self.__lock)
+            .field("lock", &self.__mtx)
             .finish()
     }
 }

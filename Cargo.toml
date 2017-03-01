@@ -6,6 +6,6 @@ authors = ["topecongiro <seuchida@gmail.com>"]
 description = "A MCS Lock Library"
 repository = "https://github.com/topecongiro/libmcs"
 
-license = "mit"
+license = "MIT"
 
 [dependencies]

@@ -7,7 +7,7 @@ This Rust library provides a mutex api using MCS lock algorithm.
 These examples are taken from the documentation of `std::sync::Mutex`.  
 It shows that `mcs::Mutex` can be interchangebly used with `std::sync::Mutex`.
 
-```
+```rust
 extern crate libmcs;
 
 use std::sync::Arc;
@@ -47,7 +47,7 @@ for _ in 0..10 {
 rx.recv().unwrap();
 ```
 
-```
+```rust
 // Recovering from a poisoned mutex
 
 extern crate libmcs;

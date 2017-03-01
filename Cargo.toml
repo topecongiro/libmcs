@@ -1,5 +1,5 @@
 [package]
-name = "libmsc"
+name = "libmcs"
 version = "0.1.0"
 authors = ["topecongiro <seuchida@gmail.com>"]
 

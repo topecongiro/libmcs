@@ -35,8 +35,6 @@ impl Node {
 /// # Examples
 ///
 /// ```
-/// extern crate libmcs;
-///
 /// use std::sync::Arc;
 /// use std::thread;
 /// use std::sync::mpsc::channel;
@@ -77,8 +75,7 @@ impl Node {
 /// To recover from a poisoned mutex:
 ///
 /// ```
-/// extern crate libmcs;
-/// use std::sync::{Arc, Mutex};
+/// use std::sync::Arc;
 /// use std::thread;
 ///
 /// use libmcs::Mutex;

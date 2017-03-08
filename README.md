@@ -10,7 +10,7 @@ In my environment (`Intel(R) Core(TM) i5-5200U CPU @ 2.20GHz`), the result is as
 $ cargo run --release
     Finished release [optimized] target(s) in 0.0 secs
      Running `target/release/main`
-The number of thread: 4, the loop: 1000000
+The number of thread: 4, the number of loop: 1000000
 Thread 0: 0.666136477
 Thread 1: 0.6698349370000001
 Thread 2: 0.6738236040000001

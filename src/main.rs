@@ -6,7 +6,7 @@ use std::sync::mpsc;
 use std::time;
 
 const THREAD_NUM: usize = 4;
-const LOOP: usize = 1000;
+const LOOP: usize = 1000000;
 
 fn simple_benchmark(use_mcs: bool) -> f64 {
     let (tx, rx) = mpsc::channel();
@@ -53,7 +53,7 @@ fn simple_benchmark(use_mcs: bool) -> f64 {
         println!("Thread {}: {}", i, time);
         total_time += time;
     }
-    total_time
+    total_time / THREAD_NUM as f64
 }
 
 fn main() {

@@ -8,4 +8,8 @@ repository = "https://github.com/topecongiro/libmcs"
 
 license = "MIT"
 
+[[bin]]
+name = "main"
+doc = false
+
 [dependencies]

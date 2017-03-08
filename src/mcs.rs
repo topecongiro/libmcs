@@ -28,6 +28,10 @@ impl Node {
     }
 }
 
+impl Drop for Node {
+    fn drop(&mut self) {}
+}
+
 /// A mutual exclusion primitive useful for protecting shared data
 ///
 /// This mutex is based on the MCS lock algorithm. Usually, MCS lock requires
@@ -124,7 +128,7 @@ unsafe impl<T: ?Sized + Send> Sync for Mutex<T> { }
 /// [`Mutex`].
 pub struct MutexGuard<'a, T: ?Sized + 'a> {
     __mtx: &'a Mutex<T>,
-    __node: AtomicPtr<Node>,
+    __node: Box<Node>,
     __poison: poison::Guard,
 }
 
@@ -150,7 +154,7 @@ impl<T> Mutex<T> {
 }
 
 impl<T: ?Sized> Mutex<T> {
-    /// Acquires the mutex, blocking the current thread until it is able to do so.
+    /// AcqRels the mutex, blocking the current thread until it is able to do so.
     ///
     /// # Examples
     ///
@@ -165,14 +169,13 @@ impl<T: ?Sized> Mutex<T> {
     /// ```
     pub fn lock(&self) -> LockResult<MutexGuard<T>> {
         unsafe {
-            let node = Box::into_raw(Box::new(Node::new()));
-            let prev = self.tail.swap(node, Acquire);
+            let raw_node = Box::into_raw(Box::new(Node::new()));
+            let prev = self.tail.swap(raw_node, Acquire);
             if !prev.is_null() {
-                (*prev).next.store(node, Relaxed);
-                while (*node).waiting.load(Acquire) {}
+                (*prev).next.store(raw_node, Relaxed);
+                while (*raw_node).waiting.load(Acquire) {}
             }
-
-            MutexGuard::new(self, AtomicPtr::new(node))
+            MutexGuard::new(self, Box::from_raw(raw_node))
         }
     }
 
@@ -191,12 +194,12 @@ impl<T: ?Sized> Mutex<T> {
     /// ```
     pub fn try_lock(&self) -> TryLockResult<MutexGuard<T>> {
         unsafe {
-            let node = Box::into_raw(Box::new(Node::new()));
+            let raw_node = Box::into_raw(Box::new(Node::new()));
             let prev = self.tail.load(Acquire);
             if prev.is_null() {
-                let prev_tail = self.tail.compare_and_swap(prev, node, Acquire);
+                let prev_tail = self.tail.compare_and_swap(prev, raw_node, Acquire);
                 if prev_tail.is_null() {
-                    return Ok(MutexGuard::new(self, AtomicPtr::new(node))?)
+                    return Ok(MutexGuard::new(self, Box::from_raw(raw_node)).unwrap());
                 }
             }
 
@@ -269,7 +272,8 @@ impl<T: ?Sized + fmt::Debug> fmt::Debug for Mutex<T> {
 }
 
 impl<'mutex, T: ?Sized> MutexGuard<'mutex, T> {
-    unsafe fn new(lock: &'mutex Mutex<T>, node: AtomicPtr<Node>) -> LockResult<MutexGuard<'mutex, T>> {
+    /// Create a new MutexGuard.
+    unsafe fn new(lock: &'mutex Mutex<T>, node: Box<Node>) -> LockResult<MutexGuard<'mutex, T>> {
         poison::map_result(lock.poison.borrow(), |guard| {
             MutexGuard {
                 __mtx: lock,
@@ -296,23 +300,22 @@ impl<'mutex, T: ?Sized> DerefMut for MutexGuard<'mutex, T> {
 
 
 impl<'mutex, T: ?Sized> Drop for MutexGuard<'mutex, T> {
+    /// Unlock the mutex.
     fn drop(&mut self) {
         unsafe {
             self.__mtx.poison.done(&self.__poison);
-            let raw_node_ptr = *self.__node.get_mut();
-            let mut succ = (*raw_node_ptr).next.load(Relaxed);
+            let mut succ = self.__node.next.load(Acquire);
+            let raw_node = self.__node.as_mut();
             if succ.is_null() {
-                if self.__mtx.tail.compare_and_swap(raw_node_ptr, ptr::null_mut(), Release) == raw_node_ptr {
-                    // Destroy the node pointer handled by this MutexGuard
-                    Box::from_raw(raw_node_ptr);
+                if self.__mtx.tail.compare_and_swap(raw_node,
+                                                    ptr::null_mut(), Release) == raw_node {
                     return
                 }
                 while succ.is_null() {
-                    succ = (*raw_node_ptr).next.load(Relaxed);
+                    succ = (*raw_node).next.load(Acquire);
                 }
             }
             (*succ).waiting.store(false, Relaxed);
-            Box::from_raw(raw_node_ptr);
         }
     }
 }

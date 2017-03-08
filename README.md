@@ -2,6 +2,32 @@
 
 This Rust library provides a mutex api using MCS lock algorithm.  
 
+## Benchmark Result
+
+To run a simple benchmark comparing `libmcs` and `std::sync::Mutex`, run `cargo run --release`.  
+In my environment (`Intel(R) Core(TM) i5-5200U CPU @ 2.20GHz`), the result is as follows:
+```
+$ cargo run --release
+    Finished release [optimized] target(s) in 0.0 secs
+     Running `target/release/main`
+The number of thread: 4, the loop: 1000000
+Thread 0: 0.666136477
+Thread 1: 0.6698349370000001
+Thread 2: 0.6738236040000001
+Thread 3: 0.674790267
+Elapsed time for std::sync::Mutex is 0.6711463212500001
+Thread 0: 0.5481931090000001
+Thread 1: 0.5483276020000001
+Thread 2: 0.548304494
+Thread 3: 0.5458045140000001
+Elapsed time for libmcs::Mutex is 0.5476574297500001
+```
+You can see that `libmcs::Mutex` is faster than `std::sync::Mutex`. However, the result varies depening on
+parameters such as the number of threads or the length of critical section.  
+In general, it is believed that MCS lock scales better than a simple spinlock with a backoff.  
+However, if the number of thread exceeds the number of hardware thread, you should consider using a lock algorithm
+with a backoff mechanism because you might experience scalability collapse.
+
 ## Examples
 
 These examples are taken from the documentation of `std::sync::Mutex`.  

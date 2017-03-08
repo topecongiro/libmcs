@@ -30,13 +30,14 @@ impl Node {
 
 /// A mutual exclusion primitive useful for protecting shared data
 ///
-/// This mutex is based on the MCS lock algorithm.
+/// This mutex is based on the MCS lock algorithm. Usually, MCS lock requires
+/// an explicit argument (a pointer to the queue node which represents the
+/// waiting thread) to be passed. However, this implementation does not pose
+/// such requirements because the queue node is implicitly handled by MutexGuard.
 ///
 /// # Examples
 ///
 /// ```
-/// extern crate libmcs;
-///
 /// use std::sync::Arc;
 /// use std::thread;
 /// use std::sync::mpsc::channel;
@@ -77,8 +78,7 @@ impl Node {
 /// To recover from a poisoned mutex:
 ///
 /// ```
-/// extern crate libmcs;
-/// use std::sync::{Arc, Mutex};
+/// use std::sync::Arc;
 /// use std::thread;
 ///
 /// use libmcs::Mutex;
@@ -136,7 +136,7 @@ impl<T> Mutex<T> {
     /// # Examples
     ///
     /// ```
-    /// use std::sync::Mutex;
+    /// use libmcs::Mutex;
     ///
     /// let mutex = Mutex::new(0);
     /// ```
@@ -151,6 +151,18 @@ impl<T> Mutex<T> {
 
 impl<T: ?Sized> Mutex<T> {
     /// Acquires the mutex, blocking the current thread until it is able to do so.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmcs::Mutex;
+    ///
+    /// let mutex = Mutex::new(0);
+    /// {
+    ///     let data = mutex.lock().unwrap();
+    ///     assert_eq!(*data, 0);
+    /// }
+    /// ```
     pub fn lock(&self) -> LockResult<MutexGuard<T>> {
         unsafe {
             let node = Box::into_raw(Box::new(Node::new()));
@@ -165,6 +177,18 @@ impl<T: ?Sized> Mutex<T> {
     }
 
     /// Attempts to acquire the mutex.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmcs::Mutex;
+    ///
+    /// let mutex = Mutex::new(0);
+    /// {
+    ///     let data = mutex.try_lock().unwrap();
+    ///     assert_eq!(*data, 0);
+    /// }
+    /// ```
     pub fn try_lock(&self) -> TryLockResult<MutexGuard<T>> {
         unsafe {
             let node = Box::into_raw(Box::new(Node::new()));

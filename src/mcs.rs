@@ -8,7 +8,7 @@ use std::mem;
 use std::ops::{Deref, DerefMut};
 use std::ptr;
 use std::sync::atomic::{AtomicBool, AtomicPtr};
-use std::sync::atomic::Ordering::{Acquire, Release, Relaxed};
+use std::sync::atomic::Ordering::{Acquire, Relaxed, Release};
 use std::sync::{LockResult, TryLockError, TryLockResult};
 
 use poison;
@@ -21,7 +21,7 @@ struct Node {
 
 impl Node {
     pub fn new() -> Node {
-        Node{
+        Node {
             next: AtomicPtr::new(ptr::null_mut()),
             waiting: AtomicBool::new(true),
         }
@@ -115,8 +115,8 @@ pub struct Mutex<T: ?Sized> {
     data: UnsafeCell<T>,
 }
 
-unsafe impl<T: ?Sized + Send> Send for Mutex<T> { }
-unsafe impl<T: ?Sized + Send> Sync for Mutex<T> { }
+unsafe impl<T: ?Sized + Send> Send for Mutex<T> {}
+unsafe impl<T: ?Sized + Send> Sync for Mutex<T> {}
 
 /// An RAII implementation of a scoped locking. When this structure is
 /// dropped (falls out of scope), the mutex will be unlocked.
@@ -132,7 +132,7 @@ pub struct MutexGuard<'a, T: ?Sized + 'a> {
     __poison: poison::Guard,
 }
 
-impl<'a, T: ?Sized> !marker::Send for MutexGuard<'a, T> { }
+impl<'a, T: ?Sized> !marker::Send for MutexGuard<'a, T> {}
 
 impl<T> Mutex<T> {
     /// Creates a new mutex in an unlocked state ready for use.
@@ -213,7 +213,10 @@ impl<T: ?Sized> Mutex<T> {
     }
 
     /// Consumes this mutex, returning the underlying data.
-    pub fn into_inner(self) -> LockResult<T> where T: Sized {
+    pub fn into_inner(self) -> LockResult<T>
+    where
+        T: Sized,
+    {
         // We know statically that there are no outstanding references to
         // `self` so there's no need to acquire the mutex. Moreover, in MCS lock
         // `self.tail` points to a null pointer if the mutex is not acquired.
@@ -249,7 +252,7 @@ impl<T: ?Sized> Mutex<T> {
 impl<T: ?Sized> Drop for Mutex<T> {
     // Nothing to do since if the mutex is not acquired `self.tail`
     // points to a null pointer.
-    fn drop(&mut self) { }
+    fn drop(&mut self) {}
 }
 
 impl<T: ?Sized + Default> Default for Mutex<T> {
@@ -265,8 +268,8 @@ impl<T: ?Sized + fmt::Debug> fmt::Debug for Mutex<T> {
             Ok(guard) => write!(f, "Mutex {{ datea: {:?} }}", &*guard),
             Err(TryLockError::Poisoned(err)) => {
                 write!(f, "Mutex {{ data: Poisoned({:?}) }}", &**err.get_ref())
-            },
-            Err(TryLockError::WouldBlock) => write!(f, "Mutex {{ <locked> }}")
+            }
+            Err(TryLockError::WouldBlock) => write!(f, "Mutex {{ <locked> }}"),
         }
     }
 }
@@ -274,12 +277,10 @@ impl<T: ?Sized + fmt::Debug> fmt::Debug for Mutex<T> {
 impl<'mutex, T: ?Sized> MutexGuard<'mutex, T> {
     /// Create a new MutexGuard.
     unsafe fn new(lock: &'mutex Mutex<T>, node: Box<Node>) -> LockResult<MutexGuard<'mutex, T>> {
-        poison::map_result(lock.poison.borrow(), |guard| {
-            MutexGuard {
-                __mtx: lock,
-                __node: node,
-                __poison: guard,
-            }
+        poison::map_result(lock.poison.borrow(), |guard| MutexGuard {
+            __mtx: lock,
+            __node: node,
+            __poison: guard,
         })
     }
 }
@@ -298,7 +299,6 @@ impl<'mutex, T: ?Sized> DerefMut for MutexGuard<'mutex, T> {
     }
 }
 
-
 impl<'mutex, T: ?Sized> Drop for MutexGuard<'mutex, T> {
     /// Unlock the mutex.
     fn drop(&mut self) {
@@ -307,9 +307,12 @@ impl<'mutex, T: ?Sized> Drop for MutexGuard<'mutex, T> {
             let mut succ = self.__node.next.load(Acquire);
             let raw_node = self.__node.as_mut();
             if succ.is_null() {
-                if self.__mtx.tail.compare_and_swap(raw_node,
-                                                    ptr::null_mut(), Release) == raw_node {
-                    return
+                if self.__mtx
+                    .tail
+                    .compare_and_swap(raw_node, ptr::null_mut(), Release)
+                    == raw_node
+                {
+                    return;
                 }
                 while succ.is_null() {
                     succ = (*raw_node).next.load(Acquire);
@@ -330,7 +333,7 @@ impl<'mutex, T: ?Sized + fmt::Debug> fmt::Debug for MutexGuard<'mutex, T> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc};
+    use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use super::Mutex;
     use std::sync::mpsc;
@@ -363,10 +366,16 @@ mod tests {
         for _ in 0..K {
             let tx2 = tx.clone();
             let m2 = m.clone();
-            thread::spawn(move|| { inc(&m2); tx2.send(()).unwrap(); });
+            thread::spawn(move || {
+                inc(&m2);
+                tx2.send(()).unwrap();
+            });
             let tx2 = tx.clone();
             let m2 = m.clone();
-            thread::spawn(move|| {inc(&m2); tx2.send(()).unwrap(); });
+            thread::spawn(move || {
+                inc(&m2);
+                tx2.send(()).unwrap();
+            });
         }
 
         drop(tx);
@@ -445,13 +454,12 @@ mod tests {
         }
     }
 
-
     #[test]
     fn test_mutex_arc_poison() {
         let arc = Arc::new(Mutex::new(1));
         assert!(!arc.is_poisoned());
         let arc2 = arc.clone();
-        let _ = thread::spawn(move|| {
+        let _ = thread::spawn(move || {
             let lock = arc2.lock().unwrap();
             assert_eq!(*lock, 2);
         }).join();
@@ -466,7 +474,7 @@ mod tests {
         let arc = Arc::new(Mutex::new(1));
         let arc2 = Arc::new(Mutex::new(arc));
         let (tx, rx) = mpsc::channel();
-        let _t = thread::spawn(move|| {
+        let _t = thread::spawn(move || {
             let lock = arc2.lock().unwrap();
             let lock2 = lock.lock().unwrap();
             assert_eq!(*lock2, 1);
@@ -479,7 +487,7 @@ mod tests {
     fn test_mutex_arc_access_in_unwind() {
         let arc = Arc::new(Mutex::new(1));
         let arc2 = arc.clone();
-        let _ = thread::spawn(move|| -> () {
+        let _ = thread::spawn(move || -> () {
             struct Unwinder {
                 i: Arc<Mutex<i32>>,
             }

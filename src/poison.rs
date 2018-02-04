@@ -5,17 +5,25 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LockResult, PoisonError};
 use std::thread;
 
-pub struct Flag { failed: AtomicBool }
-pub struct Guard { panicking: bool }
+pub struct Flag {
+    failed: AtomicBool,
+}
+pub struct Guard {
+    panicking: bool,
+}
 
 impl Flag {
     pub const fn new() -> Flag {
-        Flag { failed: AtomicBool::new(false) }
+        Flag {
+            failed: AtomicBool::new(false),
+        }
     }
 
     #[inline]
     pub fn borrow(&self) -> LockResult<Guard> {
-        let ret = Guard { panicking: thread::panicking() };
+        let ret = Guard {
+            panicking: thread::panicking(),
+        };
         if self.get() {
             Err(PoisonError::new(ret))
         } else {
@@ -36,11 +44,12 @@ impl Flag {
     }
 }
 
-pub fn map_result<T, U, F>(result: LockResult<T>, f: F)
-                           -> LockResult<U>
-    where F: FnOnce(T) -> U {
+pub fn map_result<T, U, F>(result: LockResult<T>, f: F) -> LockResult<U>
+where
+    F: FnOnce(T) -> U,
+{
     match result {
         Ok(t) => Ok(f(t)),
-        Err(e) => Err(PoisonError::new(f(e.into_inner())))
+        Err(e) => Err(PoisonError::new(f(e.into_inner()))),
     }
 }

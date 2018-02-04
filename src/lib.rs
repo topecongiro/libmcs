@@ -11,7 +11,6 @@
 //! Currently most of the documents and examples are borrowed from those of `std::sync::Mutex`.
 
 #![crate_type = "lib"]
-
 #![feature(optin_builtin_traits)]
 #![feature(const_fn)]
 

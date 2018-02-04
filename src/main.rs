@@ -80,7 +80,16 @@ fn main() {
     let thread_num = parse_args(args, 1, THREAD_NUM);
     let loop_num = parse_args(args, 2, LOOP);
 
-    println!("The number of thread: {}, the number of loop: {}", thread_num, loop_num);
-    println!("Elapsed time for std::sync::Mutex is {}", simple_benchmark(false, thread_num, loop_num));
-    println!("Elapsed time for libmcs::Mutex is {}", simple_benchmark(true, thread_num, loop_num));
+    println!(
+        "The number of thread: {}, the number of loop: {}",
+        thread_num, loop_num
+    );
+    println!(
+        "Elapsed time for std::sync::Mutex is {}",
+        simple_benchmark(false, thread_num, loop_num)
+    );
+    println!(
+        "Elapsed time for libmcs::Mutex is {}",
+        simple_benchmark(true, thread_num, loop_num)
+    );
 }
